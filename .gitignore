@@ -6,6 +6,7 @@ node_modules/
 dist/
 coverage/
 *.log
+BAO_CAO_DE_21.html
 data/
 certs/*.pem
 .DS_Store

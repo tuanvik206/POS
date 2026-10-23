@@ -9,7 +9,7 @@
 - Cơ sở dữ liệu: MySQL 8.4 LTS; phpMyAdmin để quản trị.
 - Reverse proxy: Nginx, chỉ công khai một cổng HTTP; bật các security headers.
 - Giám sát: Prometheus, Grafana, cAdvisor, Node Exporter, Nginx Exporter và MySQL Exporter.
-- Log tập trung: Loki + Promtail đọc Docker JSON logs.
+- Log tập trung: Promtail đọc log riêng của POS và Nginx từ named volume; Loki lưu trữ và cung cấp truy vấn LogQL.
 - Đóng gói: Docker Compose với network phân lớp và volume dữ liệu riêng.
 
 ## Khởi chạy
@@ -35,6 +35,8 @@ Nếu Docker Compose báo lỗi thiếu tài nguyên, hãy cấp ít nhất 4 GB
 | Grafana | `http://localhost:8080/grafana/` | Tài khoản trong `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` |
 | Prometheus | `http://localhost:8080/prometheus/` | UI được proxy qua Nginx |
 | API | `http://localhost:8080/api/v1/` | API JSON; tài liệu endpoints bên dưới |
+
+Web chỉ bind vào loopback của máy host. Mặc định dùng cổng `8080`; nếu `.env` đặt `APP_PORT=8081` thì thay `8080` bằng `8081` trong các địa chỉ trên.
 
 ## Chức năng
 
@@ -69,7 +71,8 @@ flowchart LR
   Nginx -->|/grafana| Grafana[Grafana]
   Prom --> API
   Prom --> Exporters[cAdvisor / Node / Nginx / MySQL exporters]
-  Promtail[Promtail] -->|Docker JSON logs| Loki[Loki]
+  Logs[POS log volume] --> Promtail[Promtail]
+  Promtail --> Loki[Loki]
   Grafana --> Prom
   Grafana --> Loki
 ```
@@ -78,30 +81,34 @@ Mạng `edge` nhận kết nối từ host. Mạng `app` nối Nginx, API và ph
 
 ## Giám sát
 
-Prometheus đọc metrics ứng dụng ở `api:3000/metrics`, đồng thời scrape Nginx Exporter, MySQL Exporter, cAdvisor và Node Exporter. Dashboard `POS Store - Tổng quan hạ tầng` được provision tự động vào Grafana.
+Prometheus đọc metrics ứng dụng ở `api:3000/metrics`, đồng thời scrape Nginx Exporter, MySQL Exporter, cAdvisor và Node Exporter. Dashboard `POS Store - Tổng quan hạ tầng` được provision tự động vào Grafana. Trên Docker Desktop, Node Exporter phản ánh môi trường Linux VM do Docker quản lý; nó không đại diện đầy đủ cho mọi chỉ số Windows host.
 
 ## LogQL để demo
 
-Trong Grafana mở **Explore → Loki** và chạy một số truy vấn:
+API ghi JSONL và Nginx ghi access/error log vào named volume chỉ dành cho dự án POS. Promtail mount volume ở chế độ chỉ đọc và chỉ đọc ba file này; cấu hình không mount Docker socket, không truy cập thư mục log của container khác trên host.
+
+Trong Grafana mở **Explore → Loki** và chạy các truy vấn:
 
 ```logql
-{job="docker"}
-{job="docker"} |= "error"
-{job="docker", stream="stderr"} | json
+{job="pos-api"} | json | level="info"
+{job="pos-nginx-access"} |~ " 200 "
+{job="pos-nginx-access"} |~ " 4[0-9]{2} "
 ```
 
-Loki dùng volume lưu log cục bộ. Bản demo giữ dữ liệu log trong 7 ngày; đây là cấu hình cho bài thực hành trên một máy, không phải thiết kế lưu trữ HA.
+Loki dùng volume lưu log cục bộ. Bản demo giữ dữ liệu log trong 7 ngày; đây là cấu hình cho bài thực hành trên một máy, không phải thiết kế lưu trữ HA. File log API/Nginx chỉ chứa log vận hành; Nginx không ghi query string hoặc header xác thực vào access log.
 
 **Lưu ý vòng đời:** đề thực hành yêu cầu Promtail, nhưng Grafana đã kết thúc hỗ trợ Promtail từ ngày 02/03/2026. Repository giữ Promtail để khớp rubric của đề; khi áp dụng cho hệ thống mới ngoài bài tập, nên chuyển cấu hình scrape sang Grafana Alloy.
 
 ## Hardening đã áp dụng
 
-- API chạy user không phải root `10001`; Nginx chạy user không phải root `101`.
+- API chạy user không phải root `10001`; Nginx chạy user không phải root `101`. Một init container ngắn hạn chỉ khởi tạo quyền cho log volume rồi thoát.
 - Container API và Nginx dùng root filesystem chỉ đọc, tmpfs cho file tạm, `no-new-privileges`, `cap_drop: ALL` và giới hạn PID/tài nguyên.
 - MySQL không mở port host; các network được phân đoạn và `internal` khi không cần ra ngoài.
 - Tạo JWT, mật khẩu database, exporter, Grafana và tài khoản quản trị ngẫu nhiên bằng `npm run setup`; `.env` bị Git ignore.
 - Hash mật khẩu bằng bcrypt; API yêu cầu đăng nhập và kiểm tra quyền admin cho thao tác quản trị; đăng nhập bị rate-limit.
 - Nginx thêm `X-Content-Type-Options`, `X-Frame-Options`, CSP, Referrer-Policy và Permissions-Policy.
+- Cổng web bind vào `127.0.0.1`, không lắng nghe trên mọi giao diện mạng của host.
+- Promtail chỉ đọc log API/Nginx qua volume chỉ đọc, không mount Docker socket hay log toàn máy.
 - API dùng câu lệnh SQL tham số hóa, kiểm tra payload bằng Zod và transaction cho thanh toán.
 
 Đề cho phép Nginx dùng HTTPS tự ký **hoặc** security headers cơ bản. Cấu hình mặc định dùng HTTP cùng security headers để chạy ngay trên máy cá nhân. Nếu cần HTTPS trong demo, có thể bổ sung chứng thư tự ký hoặc terminator TLS ở phía trước.
@@ -116,19 +123,13 @@ Loki dùng volume lưu log cục bộ. Bản demo giữ dữ liệu log trong 7 
 6. Mở Grafana Explore, chọn Loki và chạy ít nhất ba truy vấn LogQL ở trên.
 7. Tạo tài khoản cashier qua API, đăng nhập lại bằng cashier và trình bày giới hạn quyền quản trị.
 
-## Quản lý Git theo yêu cầu đề
+## Mã nguồn và GitHub
 
-Ba mốc commit nên được tạo theo các nhóm sau:
-
-1. `feat: POS app, MySQL, phpMyAdmin and Nginx reverse proxy`
-2. `feat: Prometheus and Grafana monitoring`
-3. `feat: Loki, Promtail, hardening and project report`
-
-Sau khi hoàn thiện, tạo repository GitHub theo mã số sinh viên, thêm remote và push các commit. Tên repository/mã số sinh viên chưa được tự điền để tránh dùng nhầm danh tính.
+Repository do sinh viên cung cấp: <https://github.com/tuanvik206/POS>. Lịch sử đã có các commit theo yêu cầu: ứng dụng POS/Nginx (`fb5245d`), Compose và monitoring (`e4c9bbb`), README/báo cáo (`bdaecf6`), cùng tương thích Docker Desktop Windows (`4789559`). Các sửa đổi hoàn thiện và minh chứng của lượt này được ghi thành commit riêng sau khi kiểm tra.
 
 ## Báo cáo
 
-Mở [BAO_CAO_DE_21.md](BAO_CAO_DE_21.md). Báo cáo có các phần kiến trúc, mô hình dữ liệu, quy trình triển khai, hardening, dashboard và truy vấn log. Trước khi nộp, điền thông tin sinh viên, tạo ảnh chụp màn hình từ hệ thống đã chạy và ghi nhận kết quả demo thực tế vào các vị trí đánh dấu.
+Mở [BAO_CAO_DE_21.md](BAO_CAO_DE_21.md) và bản PDF [BAO_CAO_DE_21.pdf](BAO_CAO_DE_21.pdf). Báo cáo có kiến trúc, mô hình dữ liệu, quy trình triển khai, hardening, dashboard, truy vấn log và ảnh minh chứng được chụp từ hệ thống chạy thật. Sau khi cập nhật báo cáo hoặc ảnh, tạo lại PDF bằng `npm run report:pdf`.
 
 ## Lệnh vận hành
 

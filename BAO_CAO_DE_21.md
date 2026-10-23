@@ -2,15 +2,14 @@
 
 ## HỆ THỐNG QUẢN LÝ CỬA HÀNG VÀ BÁN HÀNG POS
 
-**Môn học:** Triển khai và Quản trị Hệ thống Phần mềm  
-**Sinh viên:** Nguyễn Anh Tuấn  
-**Mã số sinh viên:** DTC245200672  
-**Lớp:** CNTT K23M  
-**Giảng viên hướng dẫn:** [Họ tên giảng viên]  
-**Trường/Khoa:** [Tên trường và khoa]  
-**Năm học:** [Năm học]
+**Môn học:** Triển khai và Quản trị Hệ thống Phần mềm
+**Sinh viên:** Nguyễn Anh Tuấn
+**Mã số sinh viên:** DTC245200672
+**Lớp:** CNTT K23M
+**Giảng viên hướng dẫn:** Vũ Văn Diện
+**Ngày hoàn thành:** 23/10/2026
 
-> Trước khi nộp, thay tất cả nội dung trong ngoặc vuông bằng thông tin chính xác. Báo cáo này mô tả thiết kế và cấu hình đã chuẩn bị trong repository. Những phần ghi **[BỔ SUNG ẢNH/KẾT QUẢ DEMO]** cần được hoàn thiện sau khi chạy hệ thống trên máy thực tế; không dùng ảnh minh họa giả lập làm bằng chứng.
+> Báo cáo ghi nhận cấu hình và kết quả demo thu được trên Docker Desktop for Windows ngày 23/10/2026. Ảnh trong các chương sau được chụp từ giao diện đang chạy; số liệu giao dịch được đọc lại từ API và cơ sở dữ liệu của phiên demo.
 
 \newpage
 
@@ -18,9 +17,9 @@
 
 Các cửa hàng bán lẻ cần theo dõi danh mục hàng hóa, giá bán, số lượng tồn, giao dịch và doanh thu hằng ngày. Khi dùng bảng tính hoặc sổ ghi chép riêng lẻ, việc kiểm tra lượng hàng còn lại sau bán thường chậm; thông tin hóa đơn và số lượng hàng xuất kho có thể không đồng nhất. Một ứng dụng POS tập trung giúp nhân viên tra cứu hàng nhanh, tạo hóa đơn và lưu thay đổi tồn kho cùng với giao dịch.
 
-Đề tài số 21 yêu cầu triển khai một website quản lý bán hàng tại cửa hàng, kết nối MySQL và phpMyAdmin, đặt Nginx làm reverse proxy, theo dõi hệ thống qua Prometheus/Grafana, tập trung log bằng Loki/Promtail và áp dụng các biện pháp hardening. Đồ án này xây dựng một ứng dụng POS cửa hàng tổng quát với các chức năng sản phẩm, điều chỉnh tồn kho, bán hàng và lịch sử hóa đơn. Hệ thống đóng gói bằng Docker Compose để các thành phần có thể khởi chạy theo một cấu hình thống nhất.
+Đề tài số 21 yêu cầu triển khai website quản lý sản phẩm và hóa đơn, kết nối MySQL/phpMyAdmin, đặt Nginx làm reverse proxy, giám sát bằng Prometheus/Grafana, tập trung log bằng Loki/Promtail và áp dụng hardening. Đồ án xây dựng POS cửa hàng với danh mục hàng hóa, điều chỉnh tồn kho, thanh toán nhanh và lịch sử hóa đơn. Các dịch vụ được đóng gói bằng Docker Compose.
 
-Mục tiêu của báo cáo là trình bày phạm vi chức năng, kiến trúc triển khai, mô hình dữ liệu, luồng hoạt động và cách thực hiện demo. Kết quả định lượng và ảnh chụp màn hình cần được ghi nhận sau khi chạy thật, tránh kết luận vượt quá bằng chứng thu thập được.
+Mục tiêu của báo cáo là trình bày phạm vi chức năng, kiến trúc, dữ liệu, luồng hoạt động, biện pháp bảo vệ và kết quả demo có thể đối chiếu được.
 
 \newpage
 
@@ -30,9 +29,24 @@ Hệ thống POS Store gồm ứng dụng web viết bằng React và TypeScript
 
 Người dùng đăng nhập bằng tài khoản được khởi tạo trong lần chạy đầu. Ứng dụng phân biệt quản trị viên và thu ngân. Quản trị viên quản lý sản phẩm và điều chỉnh tồn kho; thu ngân tạo giỏ hàng, chọn phương thức thanh toán và lập hóa đơn. Khi hoàn tất thanh toán, API khóa các dòng sản phẩm liên quan, kiểm tra tồn kho, ghi hóa đơn và chi tiết hóa đơn, giảm tồn kho và tạo bản ghi biến động kho trong cùng một transaction MySQL.
 
-Prometheus thu thập metrics từ API và các exporter. Grafana được cấu hình sẵn datasource Prometheus/Loki và dashboard hạ tầng. Promtail đọc Docker JSON logs rồi gửi về Loki. Các cấu hình Compose tách network theo luồng truy cập, dùng mật khẩu ngẫu nhiên, giới hạn quyền container, chạy API/Nginx bằng user không phải root, cùng các security headers ở reverse proxy.
+Prometheus thu thập metrics từ API và năm nhóm exporter/target. Grafana được cấu hình datasource Prometheus/Loki, dashboard hạ tầng và ba panel LogQL. Promtail chỉ đọc các file log dành riêng cho ứng dụng từ named volume `pos-logs`; cấu hình không mount Docker socket hay log container khác. Compose phân đoạn network, giữ MySQL trong mạng nội bộ, chạy API/Nginx không phải root, áp dụng giới hạn quyền và security headers.
 
 **Từ khóa:** POS, Docker Compose, MySQL, Nginx, Prometheus, Grafana, Loki, Promtail, hardening.
+
+\newpage
+
+## MỤC LỤC
+
+1. Lời mở đầu và tóm tắt
+2. Mục tiêu, phạm vi và yêu cầu
+3. Kiến trúc hệ thống
+4. Thiết kế cơ sở dữ liệu
+5. Triển khai ứng dụng và database
+6. Nginx reverse proxy và hardening
+7. Giám sát Prometheus và Grafana
+8. Tập trung log với Loki/Promtail và LogQL
+9. Quy trình demo và đối chiếu đề bài
+10. Kết luận, tài liệu tham khảo và phụ lục
 
 \newpage
 
@@ -81,7 +95,7 @@ Hệ thống chưa tích hợp cổng thanh toán thật, máy in hóa đơn, qu
 
 Frontend sử dụng React/TypeScript để xây dựng giao diện đơn trang; Vite đóng gói các tài nguyên tĩnh. Backend là Node.js LTS và Express, nhận HTTP JSON và tách các endpoint theo miền nghiệp vụ. Zod xác thực cấu trúc dữ liệu; bcryptjs hash mật khẩu; JWT mã hóa phiên đăng nhập. MySQL 8.4 LTS được chọn đúng yêu cầu của đề số 21, còn phpMyAdmin cung cấp giao diện quản trị cơ sở dữ liệu.
 
-Nginx làm điểm vào duy nhất. Prometheus và các exporter thu thập số liệu; Grafana trực quan hóa Prometheus và Loki. Promtail đọc log Docker và đẩy đến Loki. Docker Compose định nghĩa dịch vụ, volume và network phục vụ triển khai trên một máy.
+Nginx làm điểm vào duy nhất. Prometheus và các exporter thu thập số liệu; Grafana trực quan hóa Prometheus và Loki. Promtail đọc log ứng dụng từ volume chỉ đọc và đẩy đến Loki. Docker Compose định nghĩa dịch vụ, volume và network phục vụ triển khai trên một máy.
 
 \newpage
 
@@ -102,22 +116,7 @@ Network `edge` nối Nginx với cổng host. Network `app` nối frontend proxy
 
 ### 3.3 Sơ đồ
 
-```mermaid
-flowchart LR
-  U[Trình duyệt] --> N[Nginx :8080]
-  N --> W[React SPA]
-  N --> A[Express API]
-  A --> D[(MySQL)]
-  N --> P[phpMyAdmin]
-  P --> D
-  N --> G[Grafana]
-  N --> M[Prometheus]
-  M --> A
-  M --> E[Exporters: cAdvisor, Node, Nginx, MySQL]
-  T[Promtail] --> L[Loki]
-  G --> M
-  G --> L
-```
+![Sơ đồ kiến trúc POS Store](report/architecture.svg)
 
 \newpage
 
@@ -156,15 +155,35 @@ Máy chạy cần Node.js 24 LTS và Docker Compose v2. Trên Windows cần Dock
 
 ### 5.2 Luồng ứng dụng
 
-Người dùng truy cập cổng Nginx. Nginx trả file SPA và phục vụ API cùng origin. API xác thực token trước khi đọc dữ liệu nghiệp vụ; backend kết nối MySQL qua network riêng. phpMyAdmin cũng kết nối MySQL nhưng không publish cổng riêng ra host. Host chỉ truy cập các dịch vụ qua Nginx trên cổng cấu hình mặc định `8080`.
+Người dùng truy cập cổng Nginx. Nginx trả file SPA và phục vụ API cùng origin. API xác thực token trước khi đọc dữ liệu nghiệp vụ; backend kết nối MySQL qua network riêng. phpMyAdmin cũng kết nối MySQL nhưng không publish cổng riêng ra host. Cấu hình mặc định là `8080`; phiên demo đặt `APP_PORT=8081`, chỉ bind vào `127.0.0.1:8081`.
 
 ### 5.3 Dữ liệu và vận hành
 
 MySQL dùng named volume để giữ dữ liệu sau khi container dừng. Grafana, Prometheus và Loki cũng dùng các volume độc lập. Lệnh `docker compose down` dừng các dịch vụ và giữ volume. Lệnh `docker compose down -v` xóa dữ liệu demo; chỉ thực hiện khi cần tạo lại môi trường sạch.
 
-### 5.4 Bằng chứng cần bổ sung
+### 5.4 Kết quả và ảnh minh chứng
 
-**[BỔ SUNG ẢNH/KẾT QUẢ DEMO]** Chụp màn hình trang POS, danh sách sản phẩm, giao dịch vừa tạo và các bảng `sales`, `sale_items`, `stock_movements` trên phpMyAdmin. Ghi ngày giờ demo, phiên bản Docker, trạng thái từng container và lỗi thực tế nếu có. Không ghi “đã chạy thành công” trước khi quan sát kết quả.
+Stack khởi chạy bằng Docker Compose trên Windows 11 Home Single Language, Docker Desktop/WSL2. API trả health `healthy`, MySQL `healthy`; đăng nhập admin trả HTTP 200. API trả về 6 sản phẩm, tổng 110 đơn vị tồn và 2 hóa đơn trong phiên demo. Một hóa đơn kiểm chứng có mã `POS-MVKZ4396-6EA63A0B`, tổng tiền 77.000 ₫, gồm hai SKU; sản phẩm thử `DEMO-TA-1792760163358` giảm từ 4 xuống 3 đơn vị. Backend ghi đồng thời hóa đơn, dòng hàng, số lượng mới và biến động kho trong transaction.
+
+**Tổng quan POS.**
+
+![Dashboard cửa hàng POS](report/evidence/pos-overview.png)
+
+**Danh mục sản phẩm và số lượng tồn.**
+
+![Danh sách sản phẩm và tồn kho](report/evidence/pos-products.png)
+
+**Lịch sử hóa đơn sau khi bán.**
+
+![Lịch sử hóa đơn](report/evidence/pos-orders.png)
+
+**phpMyAdmin đã kết nối tới cơ sở dữ liệu `pos_store`.**
+
+![Giao diện phpMyAdmin và database POS](report/evidence/phpmyadmin.png)
+
+**Bảng `sales` hiển thị hai hóa đơn đã lưu, gồm giao dịch kiểm chứng 77.000 ₫.**
+
+![Bản ghi hóa đơn trong bảng sales trên phpMyAdmin](report/evidence/phpmyadmin-sales.png)
 
 \newpage
 
@@ -187,6 +206,7 @@ Nginx trả `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referre
 - Mật khẩu khởi tạo được random hóa, lưu trong `.env` bị Git ignore; mật khẩu user hash bằng bcrypt.
 - API kiểm tra role admin cho thay đổi sản phẩm, kho và tạo user; đăng nhập áp rate limit.
 - SQL nghiệp vụ dùng placeholder parameters; payload được validate và body JSON có giới hạn kích thước.
+- Nginx access log chỉ ghi URI, không ghi query string hoặc header xác thực; Promtail chỉ đọc log POS qua volume `:ro`.
 
 ### 6.4 Giới hạn bảo mật
 
@@ -202,11 +222,15 @@ API xuất `http_requests_total`, `http_request_duration_seconds` và default No
 
 ### 7.2 Dashboard
 
-Grafana được provision datasource Prometheus và Loki, đồng thời nạp dashboard “POS Store - Tổng quan hạ tầng”. Dashboard gồm tốc độ request, lỗi 5xx, CPU/bộ nhớ container, kết nối Nginx và trạng thái MySQL. Các biểu đồ giúp người demo quan sát thay đổi khi truy cập API hoặc tạo giao dịch.
+Grafana được provision datasource Prometheus và Loki, đồng thời nạp dashboard “POS Store - Tổng quan hạ tầng”. Dashboard gồm tốc độ request, lỗi 5xx, CPU/bộ nhớ container, kết nối Nginx, trạng thái MySQL và ba panel LogQL. Các biểu đồ giúp người demo quan sát thay đổi khi truy cập API hoặc tạo giao dịch.
 
 ### 7.3 Bằng chứng demo
 
-**[BỔ SUNG ẢNH/KẾT QUẢ DEMO]** Chụp trạng thái `UP` của các target trong Prometheus và dashboard Grafana sau khi có request thực tế. Ghi lại target nào hoạt động trên môi trường hiện tại; cAdvisor/Node Exporter phụ thuộc nền tảng Docker host, do đó cần mô tả nếu chạy Windows Docker Desktop/WSL2 và exporter host không lấy đủ metrics.
+Trong lần kiểm tra ngày 23/10/2026, sáu target `prometheus`, `pos-api`, `nginx`, `mysql`, `containers` và `host` đều trả trạng thái `UP`. Node Exporter trên Windows Docker Desktop phản ánh Linux VM/WSL2 của Docker, không đại diện đầy đủ cho toàn bộ host Windows.
+
+![Các target Prometheus đang hoạt động](report/evidence/prometheus-targets.png)
+
+![Dashboard metrics Grafana](report/evidence/grafana-dashboard.png)
 
 ### 7.4 Cách đọc
 
@@ -216,21 +240,21 @@ Grafana được provision datasource Prometheus và Loki, đồng thời nạp 
 
 ## 8. LOG TẬP TRUNG LOKI VÀ PROMTAIL
 
-Promtail đọc các file Docker JSON log ở đường dẫn engine, giải mã trường log và stream rồi gửi nội dung đến Loki. Nginx xuất access/error logs ra stdout/stderr; API cũng ghi log có cấu trúc JSON. Loki giữ log trong volume cục bộ với cấu hình retention 7 ngày. Grafana dùng datasource Loki để tìm kiếm theo nhãn `job` và `stream`. Đề bài yêu cầu Promtail, tuy vậy Grafana kết thúc hỗ trợ Promtail từ 02/03/2026; cấu hình này giữ agent theo rubric, còn triển khai mới nên xem xét Grafana Alloy.
+Promtail đọc ba file trong named volume chỉ đọc `pos-logs`: `api.jsonl`, `nginx-access.log`, `nginx-error.log`. Nginx đồng thời xuất log ra stdout/stderr để dễ xem bằng `docker compose logs`; API cũng ghi JSON ra stdout. Loki giữ dữ liệu trong volume riêng, retention 7 ngày. Grafana dùng nhãn `job`, và API bổ sung nhãn JSON `level`. Đề bài yêu cầu Promtail; Grafana đã kết thúc hỗ trợ Promtail từ 02/03/2026, vì vậy cấu hình giữ Promtail để tuân thủ yêu cầu đề. Với hệ thống triển khai mới, nên xem xét Grafana Alloy ([tài liệu Promtail chính thức](https://grafana.com/docs/loki/latest/send-data/promtail/)).
 
 Các truy vấn dùng trong demo:
 
 ```logql
-{job="docker"}
-{job="docker"} |= "error"
-{job="docker", stream="stderr"} | json
+{job="pos-api"} | json | level="info"
+{job="pos-nginx-access"} |~ " 200 "
+{job="pos-nginx-access"} |~ " 4[0-9]{2} "
 ```
 
-Truy vấn thứ nhất hiển thị log từ Docker containers. Truy vấn thứ hai lọc dòng có từ khóa error. Truy vấn thứ ba lọc stderr và phân tích JSON. Trong lúc demo cần tạo request thật và kiểm tra truy vấn trả về log tương ứng. Nếu Docker Desktop lưu container log bên trong VM mà bind mount `/var/lib/docker/containers` không đọc được, điều chỉnh đường dẫn bind theo runtime đang sử dụng hoặc chạy project trong môi trường Linux/WSL2.
+Đã chạy cả ba truy vấn qua datasource Loki trong Grafana: truy vấn API trả log JSON của ứng dụng; hai truy vấn Nginx trả các request HTTP 200 và 4xx. Ảnh dashboard bên dưới chụp các kết quả trả về trong phiên demo.
 
-Promtail không gắn Docker socket trong cấu hình để tránh cấp cho agent đọc log quyền điều khiển daemon. Việc đọc log phụ thuộc quyền truy cập đường dẫn container log. Nếu log driver của Docker thay đổi khỏi `json-file`, cần cập nhật cấu hình scrape.
+Promtail không gắn Docker socket, không đọc log toàn máy và mount volume ứng dụng ở chế độ chỉ đọc. Cách này tránh cấp cho agent quyền điều khiển Docker daemon và không phụ thuộc đường dẫn lưu log bên trong WSL2.
 
-**[BỔ SUNG ẢNH/KẾT QUẢ DEMO]** Chụp ba truy vấn LogQL, thời gian truy vấn và một số dòng log API/Nginx có nguồn gốc rõ ràng. Không đưa token, mật khẩu hoặc dữ liệu cá nhân vào ảnh chụp.
+![Panel Grafana và ba truy vấn LogQL](report/evidence/grafana-logql.png)
 
 \newpage
 
@@ -249,19 +273,19 @@ Promtail không gắn Docker socket trong cấu hình để tránh cấp cho age
 
 ### 9.2 Bảng đối chiếu yêu cầu
 
-| Yêu cầu đề | Thành phần trong repository | Bằng chứng cần chụp khi chạy |
+| Yêu cầu đề | Thành phần trong repository | Bằng chứng đã thu thập |
 |---|---|---|
-| Source, cấu hình, README và commit | Toàn bộ mã nguồn, README, nhóm mốc commit đề xuất | Trang repository và lịch sử commit |
-| Website + MySQL + DB tool | React, Express, MySQL, phpMyAdmin | POS và bảng dữ liệu |
-| Nginx reverse proxy | `frontend/nginx.conf`, cổng duy nhất | Truy cập ứng dụng qua Nginx |
-| Prometheus/Grafana | `observability/prometheus`, provisioning Grafana | Targets UP và dashboard |
-| Loki/Promtail, 2–3 LogQL | Cấu hình Loki, Promtail và ví dụ LogQL | Kết quả Explore |
-| Hardening | Docker Compose, Dockerfile, `.env` | Cấu hình user, network và header |
-| Demo tổng thể | README và quy trình chương này | Ảnh/biên bản demo có ngày giờ |
+| Source, cấu hình, README và commit | Mã nguồn, README, ba mốc commit chính và commit hoàn thiện | Git log và URL repository ở README |
+| Website + MySQL + DB tool | React, Express, MySQL, phpMyAdmin | Ảnh POS, hóa đơn, phpMyAdmin; API đăng nhập 200 |
+| Nginx reverse proxy | `frontend/nginx.conf`; port loopback duy nhất | Web truy cập qua Nginx và headers kiểm chứng |
+| Prometheus/Grafana | Cấu hình scrape, datasource và dashboard | Sáu target UP, dashboard Grafana |
+| Loki/Promtail, 2–3 LogQL | Config Loki/Promtail và ba truy vấn | Ba truy vấn trả về log từ API/Nginx |
+| Hardening | Compose, Dockerfile, Nginx và API | Non-root, read-only, network nội bộ, headers và secret ngoài Git |
+| Demo tổng thể | README và quy trình chương này | Ảnh giao diện cùng kết quả invoice/stock trong phụ lục |
 
 ### 9.3 Nhận xét kết quả
 
-Phần nhận xét cuối cần hoàn thành sau khi demo: ghi dịch vụ khởi động được, endpoint nào đạt health, giao dịch nào được tạo, số tồn trước/sau, metrics/log nào quan sát được và vấn đề còn tồn tại. Không tự đặt số liệu hiệu năng hay khẳng định kiểm thử khi chưa có kết quả thu thập.
+Luồng bán hàng hoạt động qua API và ghi nhận đồng bộ trên MySQL: hóa đơn `POS-MVKZ4396-6EA63A0B` có tổng 77.000 ₫; hai mặt hàng được giữ trong chi tiết hóa đơn; SKU demo giảm tồn 1 đơn vị, từ 4 xuống 3. Đăng nhập, danh sách sản phẩm, lịch sử hóa đơn, phpMyAdmin, Prometheus, Grafana và truy vấn Loki đều được mở trong lần demo. Sáu target Prometheus ở trạng thái `UP`; ba truy vấn LogQL trả về log tương ứng. Không ghi số liệu tải/độ trễ vì chưa chạy kiểm thử hiệu năng.
 
 \newpage
 
@@ -269,7 +293,7 @@ Phần nhận xét cuối cần hoàn thành sau khi demo: ghi dịch vụ khở
 
 Đồ án đặt nền tảng POS cho cửa hàng quy mô nhỏ, thực hiện chu trình cơ bản từ quản lý sản phẩm đến lập hóa đơn và giảm tồn kho. Cấu hình Docker Compose triển khai đồng bộ ứng dụng và các dịch vụ vận hành, đồng thời tách network nhằm giới hạn đường truy cập. Nginx làm reverse proxy và áp dụng security headers. Prometheus/Grafana cung cấp giám sát; Loki/Promtail hỗ trợ tra cứu log tập trung.
 
-Các điểm cần hoàn thiện trước khi nộp gồm chạy demo trên máy thật, chụp ảnh minh chứng, điền danh tính sinh viên, tạo repository GitHub theo MSSV và tạo ba commit có nội dung rõ ràng. Môi trường Docker Desktop trên Windows có thể cần điều chỉnh bind mount log/host metrics so với Linux thuần.
+Phiên demo đã chạy trên Docker Desktop for Windows, có ảnh minh chứng POS, phpMyAdmin, Prometheus và Grafana trong báo cáo. Cấu hình log dùng volume riêng nên hoạt động nhất quán trên Windows/WSL2 mà không bind mount thư mục log nội bộ Docker. Giới hạn đã ghi nhận là Node Exporter phản ánh Linux VM của Docker Desktop; ứng dụng chưa tích hợp TLS, cổng thanh toán, máy in hoặc hoàn/đổi hàng.
 
 Hướng phát triển tiếp theo gồm phân trang và lọc hóa đơn, xuất hóa đơn PDF, tìm kiếm mã vạch, quản lý nhiều chi nhánh, hoàn/đổi hàng, backup tự động, cảnh báo tồn thấp qua email, audit log và triển khai HTTPS bằng chứng thư được quản lý. Các tính năng mới cần giữ nguyên tính nguyên tử của giao dịch và kiểm soát quyền theo vai trò.
 
@@ -285,15 +309,16 @@ Hướng phát triển tiếp theo gồm phân trang và lọc hóa đơn, xuấ
 6. Tài liệu Docker Compose: <https://docs.docker.com/compose/>.
 7. Tài liệu Prometheus: <https://prometheus.io/docs/introduction/overview/>.
 8. Tài liệu Grafana Loki và LogQL: <https://grafana.com/docs/loki/latest/>.
+9. Thông báo vòng đời Promtail và hướng dẫn chuyển đổi sang Grafana Alloy: <https://grafana.com/docs/loki/latest/send-data/promtail/>.
 
 ## PHỤ LỤC: THÔNG TIN TRIỂN KHAI
 
 | Mục | Giá trị ghi nhận |
 |---|---|
-| Ngày và giờ demo | [Bổ sung] |
-| Hệ điều hành / Docker Engine | [Bổ sung] |
-| Commit hash 1 / 2 / 3 | [Bổ sung] |
-| Kết quả Docker Compose | [Bổ sung] |
-| Kết quả giao dịch mẫu | [Bổ sung mã hóa đơn, số tiền, tồn kho trước/sau] |
-| Kết quả dashboard và LogQL | [Bổ sung] |
-| Hạn chế môi trường phát hiện được | [Bổ sung] |
+| Ngày demo | 23/10/2026 |
+| Hệ điều hành / Docker Engine | Windows 11 Home Single Language 10.0.26300; Docker Desktop Linux/WSL2, kernel 6.18.33.2; Docker Engine 26.1.4; Compose v2.27.1 |
+| Các mốc commit chính | `fb5245d` POS/Nginx; `e4c9bbb` Compose/monitoring; `bdaecf6` README/báo cáo; `4789559` Docker Desktop Windows |
+| Kết quả Docker Compose | Các dịch vụ chạy; API và MySQL healthy; web bind `127.0.0.1:8081`; Grafana datasource/dashboard provision thành công |
+| Kết quả giao dịch demo | Hóa đơn `POS-MVKZ4396-6EA63A0B`; tổng 77.000 ₫; 2 dòng hàng; SKU `DEMO-TA-1792760163358` tồn 4 → 3 |
+| Kết quả dashboard và LogQL | Prometheus: 6/6 target UP; Grafana hiển thị metrics; ba LogQL cho API, Nginx 200 và Nginx 4xx trả log |
+| Hạn chế môi trường | Node Exporter quan sát Docker Linux VM, không phải toàn bộ Windows host; chưa chạy load test; triển khai demo HTTP loopback với security headers |

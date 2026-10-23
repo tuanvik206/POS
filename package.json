@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "setup": "node scripts/init-env.mjs",
+    "capture:evidence": "node scripts/capture-evidence.mjs",
+    "report:pdf": "node scripts/render-report.mjs",
     "dev:api": "npm --prefix backend run dev",
     "dev:web": "npm --prefix frontend run dev",
     "build:web": "npm --prefix frontend run build"
