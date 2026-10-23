@@ -4,7 +4,7 @@
   "tags": ["pos", "docker", "monitoring"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "15s",
   "panels": [
     {"id":1,"title":"HTTP request / giây","type":"timeseries","gridPos":{"h":8,"w":12,"x":0,"y":0},"targets":[{"expr":"sum(rate(http_requests_total[5m]))","legendFormat":"requests/s","refId":"A"}]},
@@ -12,7 +12,10 @@
     {"id":3,"title":"CPU theo container","type":"timeseries","gridPos":{"h":8,"w":12,"x":0,"y":8},"targets":[{"expr":"sum by (name) (rate(container_cpu_usage_seconds_total{name!~\"\"}[5m]))","legendFormat":"{{name}}","refId":"A"}]},
     {"id":4,"title":"Bộ nhớ theo container","type":"timeseries","gridPos":{"h":8,"w":12,"x":12,"y":8},"targets":[{"expr":"sum by (name) (container_memory_working_set_bytes{name!~\"\"})","legendFormat":"{{name}}","refId":"A"}]},
     {"id":5,"title":"Kết nối Nginx hiện tại","type":"timeseries","gridPos":{"h":7,"w":12,"x":0,"y":16},"targets":[{"expr":"nginx_connections_active","legendFormat":"active","refId":"A"}]},
-    {"id":6,"title":"MySQL đang hoạt động","type":"stat","gridPos":{"h":7,"w":12,"x":12,"y":16},"targets":[{"expr":"mysql_up","legendFormat":"MySQL up","refId":"A"}],"fieldConfig":{"defaults":{"mappings":[{"type":"value","options":{"0":{"text":"DOWN","color":"red"},"1":{"text":"UP","color":"green"}}}]},"overrides":[]}}
+    {"id":6,"title":"MySQL đang hoạt động","type":"stat","gridPos":{"h":7,"w":12,"x":12,"y":16},"targets":[{"expr":"mysql_up","legendFormat":"MySQL up","refId":"A"}],"fieldConfig":{"defaults":{"mappings":[{"type":"value","options":{"0":{"text":"DOWN","color":"red"},"1":{"text":"UP","color":"green"}}}]},"overrides":[]}},
+    {"id":7,"title":"Log API POS","type":"logs","datasource":{"type":"loki","uid":"loki"},"gridPos":{"h":10,"w":24,"x":0,"y":24},"targets":[{"datasource":{"type":"loki","uid":"loki"},"editorMode":"code","expr":"{job=\"pos-api\"} | json | level=\"info\"","queryType":"range","refId":"A"}],"options":{"showTime":true,"showLabels":true,"showCommonLabels":true,"wrapLogMessage":true,"enableLogDetails":true,"dedupStrategy":"none"}},
+    {"id":8,"title":"Truy vấn LogQL: request thành công","type":"logs","datasource":{"type":"loki","uid":"loki"},"gridPos":{"h":10,"w":12,"x":0,"y":34},"targets":[{"datasource":{"type":"loki","uid":"loki"},"editorMode":"code","expr":"{job=\"pos-nginx-access\"} |~ \" 200 \"","queryType":"range","refId":"A"}],"options":{"showTime":true,"showLabels":true,"showCommonLabels":true,"wrapLogMessage":true,"enableLogDetails":true,"dedupStrategy":"none"}},
+    {"id":9,"title":"Truy vấn LogQL: HTTP 4xx","type":"logs","datasource":{"type":"loki","uid":"loki"},"gridPos":{"h":10,"w":12,"x":12,"y":34},"targets":[{"datasource":{"type":"loki","uid":"loki"},"editorMode":"code","expr":"{job=\"pos-nginx-access\"} |~ \" 4[0-9]{2} \"","queryType":"range","refId":"A"}],"options":{"showTime":true,"showLabels":true,"showCommonLabels":true,"wrapLogMessage":true,"enableLogDetails":true,"dedupStrategy":"none"}}
   ],
   "time":{"from":"now-1h","to":"now"},
   "timepicker":{},
