@@ -1,4 +1,6 @@
 import express from 'express';
+import { randomBytes } from 'node:crypto';
+import { appendFile } from 'node:fs/promises';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
@@ -10,6 +12,14 @@ import { initializeDatabase, pool } from './db.js';
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) throw new Error('JWT_SECRET must contain at least 32 characters');
 const app = express();
 const registry = new Registry();
+
+function writeLog(level, message, details = {}) {
+  const entry = { level, message, ...details, time: new Date().toISOString() };
+  const line = `${JSON.stringify(entry)}\n`;
+  console[level === 'error' ? 'error' : 'log'](line.trimEnd());
+  appendFile('/var/log/pos/api.jsonl', line, 'utf8').catch(() => {});
+}
+
 collectDefaultMetrics({ register: registry });
 const requests = new Counter({ name: 'http_requests_total', help: 'Total HTTP requests', labelNames: ['method', 'route', 'status'], registers: [registry] });
 const duration = new Histogram({ name: 'http_request_duration_seconds', help: 'HTTP request duration in seconds', labelNames: ['method', 'route', 'status'], registers: [registry], buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5] });
@@ -35,7 +45,7 @@ const tokenSecret = process.env.JWT_SECRET;
 function auth(req, res, next) {
   const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
   if (!token) return res.status(401).json({ error: 'Vui lòng đăng nhập.' });
-  try { req.user = jwt.verify(token, tokenSecret); next(); }
+  try { req.user = jwt.verify(token, tokenSecret, { algorithms: ['HS256'], issuer: 'pos-store' }); next(); }
   catch { return res.status(401).json({ error: 'Phiên đăng nhập đã hết hạn.' }); }
 }
 const adminOnly = (req, res, next) => req.user?.role === 'admin' ? next() : res.status(403).json({ error: 'Chỉ quản trị viên được thực hiện thao tác này.' });
@@ -55,7 +65,7 @@ app.post('/api/v1/auth/login', loginLimiter, asyncRoute(async (req, res) => {
   const [rows] = await pool.execute('SELECT id, username, password_hash, display_name, role FROM users WHERE username=? AND active=1', [parsed.data.username]);
   const user = rows[0];
   if (!user || !(await bcrypt.compare(parsed.data.password, user.password_hash))) return res.status(401).json({ error: 'Sai tên đăng nhập hoặc mật khẩu.' });
-  const token = jwt.sign({ sub: user.id, username: user.username, name: user.display_name, role: user.role }, tokenSecret, { expiresIn: '8h', issuer: 'pos-store' });
+  const token = jwt.sign({ sub: user.id, username: user.username, name: user.display_name, role: user.role }, tokenSecret, { algorithm: 'HS256', expiresIn: '8h', issuer: 'pos-store' });
   res.json({ token, user: { id: user.id, username: user.username, name: user.display_name, role: user.role } });
 }));
 
@@ -89,19 +99,26 @@ app.get('/api/v1/products', auth, asyncRoute(async (req, res) => {
   res.json(rows);
 }));
 
-const productInput = z.object({ sku: z.string().trim().min(1).max(64), name: z.string().trim().min(1).max(180), category_id: z.number().int().positive().nullable().optional(), price: z.number().nonnegative(), stock: z.number().int().nonnegative().optional(), reorder_level: z.number().int().nonnegative().optional() });
+const productInput = z.object({ sku: z.string().trim().min(1).max(64), name: z.string().trim().min(1).max(180), category_id: z.number().int().positive().nullable().optional(), price: z.number().int().nonnegative().max(999_999_999_999), stock: z.number().int().nonnegative().max(4_294_967_295).optional(), reorder_level: z.number().int().nonnegative().max(4_294_967_295).optional() }).strict();
 app.post('/api/v1/products', auth, adminOnly, asyncRoute(async (req, res) => {
   const parsed = productInput.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Dữ liệu sản phẩm không hợp lệ.' });
   const p = parsed.data;
+  const conn = await pool.getConnection();
   try {
-    const [result] = await pool.execute('INSERT INTO products(sku,name,category_id,price,stock,reorder_level) VALUES(?,?,?,?,?,?)', [p.sku, p.name, p.category_id ?? null, p.price, p.stock ?? 0, p.reorder_level ?? 5]);
-    if ((p.stock ?? 0) > 0) await pool.execute('INSERT INTO stock_movements(product_id,user_id,change_qty,reason) VALUES(?,?,?,?)', [result.insertId, req.user.sub, p.stock, 'restock']);
+    await conn.beginTransaction();
+    const [result] = await conn.execute('INSERT INTO products(sku,name,category_id,price,stock,reorder_level) VALUES(?,?,?,?,?,?)', [p.sku, p.name, p.category_id ?? null, p.price, p.stock ?? 0, p.reorder_level ?? 5]);
+    if ((p.stock ?? 0) > 0) await conn.execute('INSERT INTO stock_movements(product_id,user_id,change_qty,reason) VALUES(?,?,?,?)', [result.insertId, req.user.sub, p.stock, 'restock']);
+    await conn.commit();
     res.status(201).json({ id: result.insertId, ...p });
-  } catch (error) { if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Mã SKU đã tồn tại.' }); throw error; }
+  } catch (error) {
+    await conn.rollback();
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Mã SKU đã tồn tại.' });
+    throw error;
+  } finally { conn.release(); }
 }));
 app.patch('/api/v1/products/:id', auth, adminOnly, asyncRoute(async (req, res) => {
-  const parsed = productInput.partial().safeParse(req.body);
+  const parsed = productInput.omit({ stock: true }).partial().strict().safeParse(req.body);
   if (!parsed.success || Object.keys(parsed.data || {}).length === 0) return res.status(400).json({ error: 'Không có dữ liệu cập nhật hợp lệ.' });
   const fields = parsed.data;
   const columns = { sku: 'sku', name: 'name', category_id: 'category_id', price: 'price', reorder_level: 'reorder_level' };
@@ -114,7 +131,7 @@ app.patch('/api/v1/products/:id', auth, adminOnly, asyncRoute(async (req, res) =
   } catch (error) { if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Mã SKU đã tồn tại.' }); throw error; }
 }));
 app.post('/api/v1/inventory/adjust', auth, adminOnly, asyncRoute(async (req, res) => {
-  const parsed = z.object({ product_id: z.number().int().positive(), change_qty: z.number().int().refine((n) => n !== 0), reason: z.enum(['restock','correction']) }).safeParse(req.body);
+  const parsed = z.object({ product_id: z.number().int().positive(), change_qty: z.number().int().min(-4_294_967_295).max(4_294_967_295).refine((n) => n !== 0), reason: z.enum(['restock','correction']) }).strict().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Số lượng điều chỉnh không hợp lệ.' });
   const { product_id, change_qty, reason } = parsed.data;
   const conn = await pool.getConnection();
@@ -122,11 +139,13 @@ app.post('/api/v1/inventory/adjust', auth, adminOnly, asyncRoute(async (req, res
     await conn.beginTransaction();
     const [rows] = await conn.execute('SELECT stock FROM products WHERE id=? AND active=1 FOR UPDATE', [product_id]);
     if (!rows.length) { await conn.rollback(); return res.status(404).json({ error: 'Không tìm thấy sản phẩm.' }); }
-    if (rows[0].stock + change_qty < 0) { await conn.rollback(); return res.status(409).json({ error: 'Tồn kho không đủ để giảm số lượng.' }); }
+    const nextStock = rows[0].stock + change_qty;
+    if (nextStock < 0) { await conn.rollback(); return res.status(409).json({ error: 'Tồn kho không đủ để giảm số lượng.' }); }
+    if (nextStock > 4_294_967_295) { await conn.rollback(); return res.status(409).json({ error: 'Số lượng vượt giới hạn tồn kho.' }); }
     await conn.execute('UPDATE products SET stock=stock+? WHERE id=?', [change_qty, product_id]);
     await conn.execute('INSERT INTO stock_movements(product_id,user_id,change_qty,reason) VALUES(?,?,?,?)', [product_id, req.user.sub, change_qty, reason]);
     await conn.commit();
-    res.json({ ok: true, stock: rows[0].stock + change_qty });
+    res.json({ ok: true, stock: nextStock });
   } catch (error) { await conn.rollback(); throw error; } finally { conn.release(); }
 }));
 
@@ -142,15 +161,20 @@ app.get('/api/v1/orders/:id', auth, asyncRoute(async (req, res) => {
   res.json({ ...sale, items });
 }));
 app.post('/api/v1/checkout', auth, asyncRoute(async (req, res) => {
-  const parsed = z.object({ items: z.array(z.object({ product_id: z.number().int().positive(), quantity: z.number().int().positive().max(99) })).min(1).max(50), discount: z.number().nonnegative().default(0), payment_method: z.enum(['cash','card','transfer']) }).safeParse(req.body);
+  const parsed = z.object({ items: z.array(z.object({ product_id: z.number().int().positive(), quantity: z.number().int().positive().max(99) })).min(1).max(50), discount: z.number().nonnegative().max(0).default(0), payment_method: z.enum(['cash','card','transfer']) }).strict().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'Thông tin thanh toán không hợp lệ.' });
+  const merged = new Map();
+  for (const item of parsed.data.items) {
+    const quantity = (merged.get(item.product_id) || 0) + item.quantity;
+    if (quantity > 99) return res.status(400).json({ error: 'Mỗi sản phẩm không được vượt quá 99 đơn vị trong một hóa đơn.' });
+    merged.set(item.product_id, quantity);
+  }
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const merged = new Map();
-    for (const item of parsed.data.items) merged.set(item.product_id, (merged.get(item.product_id) || 0) + item.quantity);
     const items = [];
-    for (const [id, quantity] of merged) {
+    for (const id of [...merged.keys()].sort((a, b) => a - b)) {
+      const quantity = merged.get(id);
       const [rows] = await conn.execute('SELECT id,sku,name,price,stock FROM products WHERE id=? AND active=1 FOR UPDATE', [id]);
       const product = rows[0];
       if (!product) { const error = new Error('Một sản phẩm không còn khả dụng.'); error.status = 409; throw error; }
@@ -160,7 +184,7 @@ app.post('/api/v1/checkout', auth, asyncRoute(async (req, res) => {
     const subtotal = Math.round(items.reduce((sum, item) => sum + item.line_total, 0) * 100) / 100;
     const discount = Math.min(parsed.data.discount, subtotal);
     const total = Math.round((subtotal - discount) * 100) / 100;
-    const receiptNo = `POS-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+    const receiptNo = `POS-${Date.now().toString(36).toUpperCase()}-${randomBytes(4).toString('hex').toUpperCase()}`;
     const [sale] = await conn.execute('INSERT INTO sales(receipt_no,cashier_id,subtotal,discount,total,payment_method) VALUES(?,?,?,?,?,?)', [receiptNo, req.user.sub, subtotal, discount, total, parsed.data.payment_method]);
     for (const item of items) {
       await conn.execute('INSERT INTO sale_items(sale_id,product_id,product_name,sku,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?,?)', [sale.insertId,item.id,item.name,item.sku,item.quantity,item.price,item.line_total]);
@@ -174,10 +198,10 @@ app.post('/api/v1/checkout', auth, asyncRoute(async (req, res) => {
 
 app.use((_req, res) => res.status(404).json({ error: 'Không tìm thấy API.' }));
 app.use((error, _req, res, _next) => {
-  console.error(JSON.stringify({ level: 'error', message: error.message, code: error.code, time: new Date().toISOString() }));
+  writeLog('error', error.message, { code: error.code });
   res.status(500).json({ error: 'Lỗi máy chủ. Vui lòng thử lại.' });
 });
 
 const port = Number(process.env.PORT || 3000);
 await initializeDatabase();
-app.listen(port, '0.0.0.0', () => console.log(JSON.stringify({ level: 'info', message: 'POS API started', port, time: new Date().toISOString() })));
+app.listen(port, '0.0.0.0', () => writeLog('info', 'POS API started', { port }));
