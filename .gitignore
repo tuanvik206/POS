@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+/De_Tai_Thuc_Hanh - TKQT HTPM K23.pdf
+node_modules/
+dist/
+coverage/
+*.log
+data/
+certs/*.pem
+.DS_Store
+Thumbs.db

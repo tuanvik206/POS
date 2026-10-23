@@ -1,0 +1,21 @@
+{
+  "uid": "pos-overview",
+  "title": "POS Store - Tổng quan hạ tầng",
+  "tags": ["pos", "docker", "monitoring"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {"id":1,"title":"HTTP request / giây","type":"timeseries","gridPos":{"h":8,"w":12,"x":0,"y":0},"targets":[{"expr":"sum(rate(http_requests_total[5m]))","legendFormat":"requests/s","refId":"A"}]},
+    {"id":2,"title":"Tỷ lệ lỗi HTTP 5xx","type":"timeseries","gridPos":{"h":8,"w":12,"x":12,"y":0},"targets":[{"expr":"sum(rate(http_requests_total{status=~\"5..\"}[5m]))","legendFormat":"5xx/s","refId":"A"}]},
+    {"id":3,"title":"CPU theo container","type":"timeseries","gridPos":{"h":8,"w":12,"x":0,"y":8},"targets":[{"expr":"sum by (name) (rate(container_cpu_usage_seconds_total{name!~\"\"}[5m]))","legendFormat":"{{name}}","refId":"A"}]},
+    {"id":4,"title":"Bộ nhớ theo container","type":"timeseries","gridPos":{"h":8,"w":12,"x":12,"y":8},"targets":[{"expr":"sum by (name) (container_memory_working_set_bytes{name!~\"\"})","legendFormat":"{{name}}","refId":"A"}]},
+    {"id":5,"title":"Kết nối Nginx hiện tại","type":"timeseries","gridPos":{"h":7,"w":12,"x":0,"y":16},"targets":[{"expr":"nginx_connections_active","legendFormat":"active","refId":"A"}]},
+    {"id":6,"title":"MySQL đang hoạt động","type":"stat","gridPos":{"h":7,"w":12,"x":12,"y":16},"targets":[{"expr":"mysql_up","legendFormat":"MySQL up","refId":"A"}],"fieldConfig":{"defaults":{"mappings":[{"type":"value","options":{"0":{"text":"DOWN","color":"red"},"1":{"text":"UP","color":"green"}}}]},"overrides":[]}}
+  ],
+  "time":{"from":"now-1h","to":"now"},
+  "timepicker":{},
+  "templating":{"list":[]},
+  "annotations":{"list":[]}
+}
