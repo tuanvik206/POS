@@ -127,10 +127,6 @@ Loki dùng volume lưu log cục bộ. Bản demo giữ dữ liệu log trong 7 
 
 Repository do sinh viên cung cấp: <https://github.com/tuanvik206/POS>. Lịch sử đã có các commit theo yêu cầu: ứng dụng POS/Nginx (`fb5245d`), Compose và monitoring (`e4c9bbb`), README/báo cáo (`bdaecf6`), cùng tương thích Docker Desktop Windows (`4789559`). Các sửa đổi hoàn thiện và minh chứng của lượt này được ghi thành commit riêng sau khi kiểm tra.
 
-## Báo cáo
-
-Mở [BAO_CAO_DE_21.md](BAO_CAO_DE_21.md) và bản PDF [BAO_CAO_DE_21.pdf](BAO_CAO_DE_21.pdf). Báo cáo có kiến trúc, mô hình dữ liệu, quy trình triển khai, hardening, dashboard, truy vấn log và ảnh minh chứng được chụp từ hệ thống chạy thật. Sau khi cập nhật báo cáo hoặc ảnh, tạo lại PDF bằng `npm run report:pdf`.
-
 ## Lệnh vận hành
 
 ```powershell
